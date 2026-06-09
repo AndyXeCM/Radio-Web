@@ -25,6 +25,7 @@
         <button class="nav-item" data-view="morse">摩斯</button>
         <button class="nav-item" data-view="repeaters">中继</button>
         <button class="nav-item" data-view="account">账号</button>
+        <button class="nav-item admin-nav" data-view="admin">后台</button>
       </nav>
 
       <div class="sidebar-status">
@@ -228,6 +229,7 @@
               </label>
               <button id="demoLoginButton" class="primary-button">本地登录</button>
               <button id="appleConfigButton" class="apple-button">Sign in with Apple 状态</button>
+              <button id="adminJumpButton" class="ghost-button">管理员登录</button>
               <button id="exportProgressButton" class="ghost-button">导出进度</button>
               <button id="resetProgressButton" class="danger-button">清空当前用户进度</button>
             </div>
@@ -237,6 +239,63 @@
               <h2>服务端配置</h2>
             </div>
             <pre id="accountStatus" class="status-box">等待检查</pre>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="adminView">
+        <div class="workspace two-column">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>管理员登录</h2>
+                <p>默认本地密码为 radio-admin；生产环境请设置 ADMIN_PASSWORD。</p>
+              </div>
+            </div>
+            <div class="account-stack">
+              <label>
+                管理密码
+                <input id="adminPasswordInput" type="password" placeholder="radio-admin" />
+              </label>
+              <button id="adminLoginButton" class="primary-button">登录后台</button>
+              <button id="adminRefreshButton" class="ghost-button">刷新后台状态</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>数据概况</h2>
+            </div>
+            <div id="adminSummary" class="analysis-summary"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>题库管理</h2>
+                <p>导入完整 question_bank JSON；Pages 版本仅保存到当前浏览器。</p>
+              </div>
+            </div>
+            <div class="account-stack">
+              <input id="questionBankFileInput" type="file" accept="application/json,.json" />
+              <button id="importQuestionBankButton" class="primary-button">导入题库 JSON</button>
+              <button id="exportQuestionBankButton" class="ghost-button">导出当前题库</button>
+              <button id="resetQuestionBankButton" class="danger-button">恢复内置题库</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>数据管理</h2>
+                <p>管理中继与刷题数据。中继演示数据已移除，默认为空。</p>
+              </div>
+            </div>
+            <div class="account-stack">
+              <button id="adminClearRepeatersButton" class="danger-button">清空中继数据</button>
+              <button id="adminClearProgressButton" class="danger-button">清空所有刷题记录</button>
+            </div>
+            <div id="adminRepeaterList" class="repeater-list"></div>
           </section>
         </div>
       </section>

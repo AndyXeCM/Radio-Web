@@ -14,55 +14,13 @@ const state = {
   staticMode: location.hostname.endsWith("github.io") || location.protocol === "file:",
   staticBank: null,
   questionById: new Map(),
+  adminToken: localStorage.getItem("radio.adminToken") || "",
 };
 
 const STORAGE_KEY = "radio.static.db";
+const STORAGE_VERSION = 2;
 const STATIC_BANK_URL = "data/processed/question_bank.compact.json";
-
-const DEFAULT_REPEATERS = [
-  {
-    id: "cn-demo-bj-uhf-001",
-    name: "北京 UHF 中继模板",
-    province: "北京",
-    city: "北京",
-    band: "UHF",
-    downlinkMHz: 439.5,
-    uplinkMHz: 434.5,
-    offsetMHz: -5,
-    tone: "88.5 Hz",
-    mode: "FM",
-    status: "template",
-    notes: "示例数据，请在上线前替换为已授权、可公开展示的本地中继资料。",
-  },
-  {
-    id: "cn-demo-sh-vhf-001",
-    name: "上海 VHF 中继模板",
-    province: "上海",
-    city: "上海",
-    band: "VHF",
-    downlinkMHz: 145.65,
-    uplinkMHz: 145.05,
-    offsetMHz: -0.6,
-    tone: "未配置",
-    mode: "FM",
-    status: "template",
-    notes: "用于展示查询、筛选和后续扩展的数据结构。",
-  },
-  {
-    id: "cn-demo-gd-uhf-001",
-    name: "广东 UHF 中继模板",
-    province: "广东",
-    city: "广州",
-    band: "UHF",
-    downlinkMHz: 439.75,
-    uplinkMHz: 434.75,
-    offsetMHz: -5,
-    tone: "94.8 Hz",
-    mode: "FM",
-    status: "template",
-    notes: "后续可以接入协会公开数据、用户提交审核流或后台管理。",
-  },
-];
+const DEFAULT_REPEATERS = [];
 
 const MORSE_LESSONS = [
   { id: "rhythm", title: "点划节奏", group: ". -", targetWpm: 5, drills: ["E", "T", "I", "M", "A", "N"] },
@@ -119,6 +77,7 @@ const viewTitles = {
   morse: "摩斯电码",
   repeaters: "中继查询",
   account: "账号",
+  admin: "管理后台",
 };
 
 function $(selector) {
@@ -162,20 +121,60 @@ async function api(path, options = {}) {
 
 function loadLocalDb() {
   const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-  return saved || { users: {}, attempts: [], repeaters: DEFAULT_REPEATERS };
+  if (!saved) return { version: STORAGE_VERSION, users: {}, attempts: [], repeaters: DEFAULT_REPEATERS };
+  if (saved.version !== STORAGE_VERSION) {
+    saved.version = STORAGE_VERSION;
+    saved.repeaters = (saved.repeaters || []).filter((repeater) => repeater.status !== "template" && !String(repeater.id || "").startsWith("cn-demo-"));
+    saveLocalDb(saved);
+  }
+  saved.users ||= {};
+  saved.attempts ||= [];
+  saved.repeaters ||= [];
+  return saved;
 }
 
 function saveLocalDb(db) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
 }
 
+function getAdminHeaders() {
+  return state.adminToken ? { Authorization: `Bearer ${state.adminToken}` } : {};
+}
+
+function downloadJSON(filename, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 async function loadStaticBank() {
   if (state.staticBank) return state.staticBank;
+  const override = localStorage.getItem("radio.questionBankOverride");
+  if (override) {
+    state.staticBank = JSON.parse(override);
+    state.questionById = new Map(state.staticBank.questions.map((question) => [question.id, question]));
+    return state.staticBank;
+  }
   const response = await fetch(STATIC_BANK_URL);
   if (!response.ok) throw new Error("无法加载静态题库 JSON");
   state.staticBank = await response.json();
   state.questionById = new Map(state.staticBank.questions.map((question) => [question.id, question]));
   return state.staticBank;
+}
+
+function validateStaticBank(bank) {
+  if (!bank || typeof bank !== "object" || !Array.isArray(bank.questions) || !bank.banks) {
+    throw new Error("题库 JSON 格式不正确");
+  }
+  for (const question of bank.questions.slice(0, 5)) {
+    if (!question.id || !question.level || !question.question || !question.choices || !Array.isArray(question.answer)) {
+      throw new Error("题库题目字段不完整");
+    }
+  }
 }
 
 function normalizeText(value) {
@@ -365,6 +364,58 @@ async function staticApi(path, options = {}) {
     saveLocalDb(db);
     return { repeater };
   }
+  if (method === "POST" && url.pathname === "/api/admin/login") {
+    if (String(body.password || "") !== "radio-admin") throw new Error("管理员密码错误");
+    return { token: "static-admin", mode: "static", note: "Pages 静态版后台只管理当前浏览器本地数据。" };
+  }
+  if (method === "GET" && url.pathname === "/api/admin/state") {
+    const db = loadLocalDb();
+    return {
+      mode: "static",
+      users: Object.keys(db.users || {}).length,
+      attempts: (db.attempts || []).length,
+      repeaters: (db.repeaters || []).length,
+      questionCount: state.staticBank.questions.length,
+      bankGeneratedAt: state.staticBank.generatedAt,
+      usingQuestionBankOverride: Boolean(localStorage.getItem("radio.questionBankOverride")),
+    };
+  }
+  if (method === "DELETE" && url.pathname === "/api/admin/repeaters") {
+    const db = loadLocalDb();
+    db.repeaters = [];
+    saveLocalDb(db);
+    return { repeaters: [] };
+  }
+  if (method === "DELETE" && url.pathname.startsWith("/api/admin/repeaters/")) {
+    const id = decodeURIComponent(url.pathname.replace("/api/admin/repeaters/", ""));
+    const db = loadLocalDb();
+    db.repeaters = db.repeaters.filter((repeater) => repeater.id !== id);
+    saveLocalDb(db);
+    return { repeaters: db.repeaters };
+  }
+  if (method === "POST" && url.pathname === "/api/admin/progress/reset") {
+    const db = loadLocalDb();
+    db.attempts = [];
+    saveLocalDb(db);
+    return { attempts: 0 };
+  }
+  if (method === "GET" && url.pathname === "/api/admin/question-bank") {
+    return state.staticBank;
+  }
+  if (method === "POST" && url.pathname === "/api/admin/question-bank/import") {
+    const bank = body.bank || body;
+    validateStaticBank(bank);
+    localStorage.setItem("radio.questionBankOverride", JSON.stringify(bank));
+    state.staticBank = bank;
+    state.questionById = new Map(bank.questions.map((question) => [question.id, question]));
+    return { questionCount: bank.questions.length, bankGeneratedAt: bank.generatedAt, usingQuestionBankOverride: true };
+  }
+  if (method === "POST" && url.pathname === "/api/admin/question-bank/reset") {
+    localStorage.removeItem("radio.questionBankOverride");
+    state.staticBank = null;
+    await loadStaticBank();
+    return { questionCount: state.staticBank.questions.length, bankGeneratedAt: state.staticBank.generatedAt, usingQuestionBankOverride: false };
+  }
   throw new Error(`Static route not implemented: ${method} ${url.pathname}`);
 }
 
@@ -380,6 +431,7 @@ function setView(view) {
   if (view === "analysis") loadStats();
   if (view === "morse") loadMorseLessons();
   if (view === "repeaters") loadRepeaters();
+  if (view === "admin") loadAdminState();
 }
 
 function saveUser(user) {
@@ -700,6 +752,10 @@ function playMorse() {
 async function loadRepeaters() {
   const query = encodeURIComponent($("#repeaterSearch").value || "");
   const payload = await api(`/api/repeaters?q=${query}`);
+  if (!payload.repeaters.length) {
+    $("#repeaterList").innerHTML = '<div class="empty">暂无中继数据。可以在下方新增模板，或登录后台批量管理。</div>';
+    return;
+  }
   $("#repeaterList").innerHTML = payload.repeaters
     .map(
       (repeater) => `
@@ -775,6 +831,125 @@ async function resetProgress() {
   if (state.view === "analysis") await loadStats();
 }
 
+async function adminApi(path, options = {}) {
+  return api(path, { ...options, headers: { ...(options.headers || {}), ...getAdminHeaders() } });
+}
+
+async function loginAdmin() {
+  const password = $("#adminPasswordInput").value;
+  const payload = await api("/api/admin/login", {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
+  state.adminToken = payload.token;
+  localStorage.setItem("radio.adminToken", payload.token);
+  $("#accountStatus").textContent = JSON.stringify(payload, null, 2);
+  await loadAdminState();
+}
+
+async function loadAdminState() {
+  const summary = $("#adminSummary");
+  const repeaterList = $("#adminRepeaterList");
+  if (!state.adminToken) {
+    summary.innerHTML = '<div class="empty admin-locked">请先输入管理员密码登录后台。</div>';
+    repeaterList.innerHTML = "";
+    return;
+  }
+
+  try {
+    const [adminState, repeaters] = await Promise.all([
+      adminApi("/api/admin/state"),
+      api("/api/repeaters"),
+    ]);
+    summary.innerHTML = `
+      <div class="analysis-card"><span>运行模式</span><strong>${escapeHTML(adminState.mode)}</strong></div>
+      <div class="analysis-card"><span>题目数</span><strong>${adminState.questionCount}</strong></div>
+      <div class="analysis-card"><span>中继数</span><strong>${adminState.repeaters}</strong></div>
+      <div class="analysis-card"><span>作答记录</span><strong>${adminState.attempts}</strong></div>
+    `;
+    renderAdminRepeaters(repeaters.repeaters);
+  } catch (error) {
+    state.adminToken = "";
+    localStorage.removeItem("radio.adminToken");
+    summary.innerHTML = `<div class="empty admin-locked">后台登录已失效：${escapeHTML(error.message)}</div>`;
+    repeaterList.innerHTML = "";
+  }
+}
+
+function renderAdminRepeaters(repeaters) {
+  const container = $("#adminRepeaterList");
+  if (!repeaters.length) {
+    container.innerHTML = '<div class="empty">暂无中继数据。</div>';
+    return;
+  }
+  container.innerHTML = repeaters.map((repeater) => `
+    <div class="repeater-item">
+      <div>
+        <strong>${escapeHTML(repeater.name)}</strong>
+        <p>${escapeHTML(repeater.province)} ${escapeHTML(repeater.city)} · ${Number(repeater.downlinkMHz).toFixed(3)} / ${Number(repeater.uplinkMHz).toFixed(3)}</p>
+      </div>
+      <div class="repeater-item-actions">
+        <button class="danger-button" data-delete-repeater="${escapeHTML(repeater.id)}">删除</button>
+      </div>
+    </div>
+  `).join("");
+  $all("[data-delete-repeater]").forEach((button) => {
+    button.addEventListener("click", () => deleteRepeater(button.dataset.deleteRepeater).catch(console.error));
+  });
+}
+
+async function deleteRepeater(id) {
+  await adminApi(`/api/admin/repeaters/${encodeURIComponent(id)}`, { method: "DELETE" });
+  await loadRepeaters();
+  await loadAdminState();
+}
+
+async function clearRepeaters() {
+  if (!confirm("确认清空所有中继数据？")) return;
+  await adminApi("/api/admin/repeaters", { method: "DELETE" });
+  await loadRepeaters();
+  await loadAdminState();
+}
+
+async function clearAllProgress() {
+  if (!confirm("确认清空所有用户的刷题记录？")) return;
+  await adminApi("/api/admin/progress/reset", { method: "POST", body: JSON.stringify({}) });
+  await renderDashboard();
+  await loadAdminState();
+}
+
+async function exportQuestionBank() {
+  const bank = await adminApi("/api/admin/question-bank");
+  downloadJSON(`radio-question-bank-${new Date().toISOString().slice(0, 10)}.json`, bank);
+}
+
+async function importQuestionBank() {
+  const file = $("#questionBankFileInput").files[0];
+  if (!file) throw new Error("请选择题库 JSON 文件");
+  const bank = JSON.parse(await file.text());
+  await adminApi("/api/admin/question-bank/import", {
+    method: "POST",
+    body: JSON.stringify({ bank }),
+  });
+  state.staticBank = null;
+  await api("/api/banks").then((payload) => {
+    state.banks = payload;
+    renderBanks();
+  });
+  await loadPractice();
+  await loadAdminState();
+}
+
+async function resetQuestionBank() {
+  if (!confirm("确认恢复内置题库？")) return;
+  await adminApi("/api/admin/question-bank/reset", { method: "POST", body: JSON.stringify({}) });
+  state.staticBank = null;
+  state.banks = await api("/api/banks");
+  renderBanks();
+  await loadPractice();
+  await loadAdminState();
+}
+
 async function init() {
   $("#levelSelect").value = state.level;
   $("#sidebarUser").textContent = state.user.displayName || state.user.id;
@@ -795,6 +970,18 @@ async function init() {
   $("#repeaterForm").addEventListener("submit", (event) => saveRepeater(event).catch(console.error));
   $("#demoLoginButton").addEventListener("click", demoLogin);
   $("#appleConfigButton").addEventListener("click", checkAppleConfig);
+  $("#adminJumpButton").addEventListener("click", () => setView("admin"));
+  $("#adminLoginButton").addEventListener("click", () => loginAdmin().catch((error) => {
+    $("#adminSummary").innerHTML = `<div class="empty">${escapeHTML(error.message)}</div>`;
+  }));
+  $("#adminRefreshButton").addEventListener("click", loadAdminState);
+  $("#adminClearRepeatersButton").addEventListener("click", clearRepeaters);
+  $("#adminClearProgressButton").addEventListener("click", clearAllProgress);
+  $("#exportQuestionBankButton").addEventListener("click", exportQuestionBank);
+  $("#importQuestionBankButton").addEventListener("click", () => importQuestionBank().catch((error) => {
+    $("#adminSummary").innerHTML = `<div class="empty">${escapeHTML(error.message)}</div>`;
+  }));
+  $("#resetQuestionBankButton").addEventListener("click", resetQuestionBank);
   $("#exportProgressButton").addEventListener("click", exportProgress);
   $("#resetProgressButton").addEventListener("click", resetProgress);
 

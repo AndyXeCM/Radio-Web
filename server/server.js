@@ -15,6 +15,9 @@ const WEB_ROOT = fs.existsSync(path.join(ROOT, "web"))
 const STORAGE_DIR = path.join(__dirname, "storage");
 const DB_FILE = path.join(STORAGE_DIR, "db.json");
 const REPEATER_SEED = path.join(__dirname, "repeaters.seed.json");
+const QUESTION_BANK_OVERRIDE = path.join(STORAGE_DIR, "question_bank.override.json");
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "radio-admin";
+const adminSessions = new Set();
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -28,8 +31,34 @@ const MIME_TYPES = {
   ".ico": "image/x-icon",
 };
 
-const questionBank = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
-const questionById = new Map(questionBank.questions.map((question) => [question.id, question]));
+let questionBank = loadQuestionBank();
+let questionById = new Map(questionBank.questions.map((question) => [question.id, question]));
+
+function loadQuestionBank() {
+  const sourceFile = fs.existsSync(QUESTION_BANK_OVERRIDE) ? QUESTION_BANK_OVERRIDE : DATA_FILE;
+  return JSON.parse(fs.readFileSync(sourceFile, "utf-8"));
+}
+
+function validateQuestionBank(data) {
+  if (!data || typeof data !== "object" || !Array.isArray(data.questions) || !data.banks) {
+    throw new Error("Invalid question bank JSON");
+  }
+  for (const question of data.questions.slice(0, 5)) {
+    if (!question.id || !question.level || !question.question || !question.choices || !Array.isArray(question.answer)) {
+      throw new Error("Question bank contains invalid question records");
+    }
+  }
+}
+
+function setQuestionBank(data, persist = true) {
+  validateQuestionBank(data);
+  questionBank = data;
+  questionById = new Map(questionBank.questions.map((question) => [question.id, question]));
+  if (persist) {
+    fs.mkdirSync(STORAGE_DIR, { recursive: true });
+    fs.writeFileSync(QUESTION_BANK_OVERRIDE, JSON.stringify(data, null, 2), "utf-8");
+  }
+}
 
 function ensureStorage() {
   fs.mkdirSync(STORAGE_DIR, { recursive: true });
@@ -41,7 +70,13 @@ function ensureStorage() {
 
 function readDb() {
   ensureStorage();
-  return JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
+  const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
+  const before = (db.repeaters || []).length;
+  db.repeaters = (db.repeaters || []).filter((repeater) => repeater.status !== "template" && !String(repeater.id || "").startsWith("cn-demo-"));
+  if (db.repeaters.length !== before) {
+    writeDb(db);
+  }
+  return db;
 }
 
 function writeDb(db) {
@@ -64,12 +99,26 @@ function sendError(res, statusCode, message, details = undefined) {
   sendJson(res, statusCode, { error: message, details });
 }
 
+function getBearerToken(req) {
+  const header = req.headers.authorization || "";
+  return header.startsWith("Bearer ") ? header.slice(7) : "";
+}
+
+function requireAdmin(req, res) {
+  const token = getBearerToken(req);
+  if (!token || !adminSessions.has(token)) {
+    sendError(res, 401, "Admin login required");
+    return false;
+  }
+  return true;
+}
+
 function parseBody(req) {
   return new Promise((resolve, reject) => {
     let body = "";
     req.on("data", (chunk) => {
       body += chunk;
-      if (body.length > 1_000_000) {
+      if (body.length > 8_000_000) {
         reject(new Error("Request body too large"));
         req.destroy();
       }
@@ -359,6 +408,101 @@ async function handleApi(req, res, url) {
     db.attempts = db.attempts.filter((attempt) => attempt.userId !== userId);
     writeDb(db);
     sendJson(res, 200, computeStats(db, userId));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/admin/login") {
+    const body = await parseBody(req);
+    if (String(body.password || "") !== ADMIN_PASSWORD) {
+      sendError(res, 401, "Invalid admin password");
+      return;
+    }
+    const token = crypto.randomUUID();
+    adminSessions.add(token);
+    sendJson(res, 200, {
+      token,
+      mode: "node",
+      note: "Set ADMIN_PASSWORD in production. Default local password is radio-admin.",
+    });
+    return;
+  }
+
+  if (pathname.startsWith("/api/admin/") && !requireAdmin(req, res)) {
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/admin/state") {
+    const db = readDb();
+    sendJson(res, 200, {
+      mode: "node",
+      users: Object.keys(db.users || {}).length,
+      attempts: (db.attempts || []).length,
+      repeaters: (db.repeaters || []).length,
+      questionCount: questionBank.questions.length,
+      bankGeneratedAt: questionBank.generatedAt,
+      usingQuestionBankOverride: fs.existsSync(QUESTION_BANK_OVERRIDE),
+      storage: DB_FILE,
+    });
+    return;
+  }
+
+  if (req.method === "DELETE" && pathname === "/api/admin/repeaters") {
+    const db = readDb();
+    db.repeaters = [];
+    writeDb(db);
+    sendJson(res, 200, { repeaters: [] });
+    return;
+  }
+
+  if (req.method === "DELETE" && pathname.startsWith("/api/admin/repeaters/")) {
+    const id = decodeURIComponent(pathname.replace("/api/admin/repeaters/", ""));
+    const db = readDb();
+    db.repeaters = (db.repeaters || []).filter((repeater) => repeater.id !== id);
+    writeDb(db);
+    sendJson(res, 200, { repeaters: db.repeaters });
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/admin/progress/reset") {
+    const db = readDb();
+    db.attempts = [];
+    writeDb(db);
+    sendJson(res, 200, { attempts: 0 });
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/admin/question-bank") {
+    sendJson(res, 200, questionBank);
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/admin/question-bank/import") {
+    const body = await parseBody(req);
+    const bank = body.bank || body;
+    try {
+      setQuestionBank(bank, true);
+      sendJson(res, 200, {
+        questionCount: questionBank.questions.length,
+        bankGeneratedAt: questionBank.generatedAt,
+        usingQuestionBankOverride: true,
+      });
+      return;
+    } catch (error) {
+      sendError(res, 400, error.message);
+      return;
+    }
+  }
+
+  if (req.method === "POST" && pathname === "/api/admin/question-bank/reset") {
+    if (fs.existsSync(QUESTION_BANK_OVERRIDE)) {
+      fs.unlinkSync(QUESTION_BANK_OVERRIDE);
+    }
+    setQuestionBank(JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")), false);
+    sendJson(res, 200, {
+      questionCount: questionBank.questions.length,
+      bankGeneratedAt: questionBank.generatedAt,
+      usingQuestionBankOverride: false,
+    });
     return;
   }
 

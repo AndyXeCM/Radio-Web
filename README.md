@@ -8,6 +8,7 @@
 - 错题本、复习队列、题目拆解、薄弱知识点分析。
 - 摩斯电码课程、输入练习、WPM 播放。
 - 中继查询模板与本地新增中继模板。
+- 管理后台：中继数据管理、题库 JSON 导入/导出/恢复、刷题数据清理。
 - Demo 用户、本地进度记录、进度导出/清空。
 - Sign in with Apple 服务端配置与验签接口模板。
 
@@ -26,6 +27,15 @@ GitHub Pages:
 https://andyxecm.github.io/Radio-Web/
 
 Pages 版本为纯静态模式：题库从仓库内 JSON 读取，刷题进度、错题、中继模板保存到浏览器 `localStorage`。
+
+## 管理后台
+
+页面侧栏进入“后台”，或在账号页点击“管理员登录”。
+
+- 默认本地管理密码：`radio-admin`
+- Node 服务端生产部署请设置环境变量：`ADMIN_PASSWORD`
+- GitHub Pages 版本没有真实服务端，后台只管理当前浏览器的 `localStorage`
+- 中继演示数据已移除，默认中继列表为空
 
 ## 题库
 
