@@ -1,0 +1,14 @@
+{
+  "name": "radio-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CRAC 2025 amateur radio study web service and sidebar web app.",
+  "scripts": {
+    "build:questions": "python3 scripts/build_question_bank.py",
+    "dev": "node server/server.js",
+    "check:server": "node --check server/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

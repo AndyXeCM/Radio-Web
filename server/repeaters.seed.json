@@ -1,0 +1,44 @@
+[
+  {
+    "id": "cn-demo-bj-uhf-001",
+    "name": "北京 UHF 中继模板",
+    "province": "北京",
+    "city": "北京",
+    "band": "UHF",
+    "downlinkMHz": 439.500,
+    "uplinkMHz": 434.500,
+    "offsetMHz": -5,
+    "tone": "88.5 Hz",
+    "mode": "FM",
+    "status": "template",
+    "notes": "示例数据，请在上线前替换为已授权、可公开展示的本地中继资料。"
+  },
+  {
+    "id": "cn-demo-sh-vhf-001",
+    "name": "上海 VHF 中继模板",
+    "province": "上海",
+    "city": "上海",
+    "band": "VHF",
+    "downlinkMHz": 145.650,
+    "uplinkMHz": 145.050,
+    "offsetMHz": -0.6,
+    "tone": "未配置",
+    "mode": "FM",
+    "status": "template",
+    "notes": "用于展示查询、筛选和后续扩展的数据结构。"
+  },
+  {
+    "id": "cn-demo-gd-uhf-001",
+    "name": "广东 UHF 中继模板",
+    "province": "广东",
+    "city": "广州",
+    "band": "UHF",
+    "downlinkMHz": 439.750,
+    "uplinkMHz": 434.750,
+    "offsetMHz": -5,
+    "tone": "94.8 Hz",
+    "mode": "FM",
+    "status": "template",
+    "notes": "后续可以接入协会公开数据、用户提交审核流或后台管理。"
+  }
+]
