@@ -11,7 +11,65 @@ const state = {
   selected: new Set(),
   result: null,
   audioContext: null,
+  staticMode: location.hostname.endsWith("github.io") || location.protocol === "file:",
+  staticBank: null,
+  questionById: new Map(),
 };
+
+const STORAGE_KEY = "radio.static.db";
+const STATIC_BANK_URL = "data/processed/question_bank.compact.json";
+
+const DEFAULT_REPEATERS = [
+  {
+    id: "cn-demo-bj-uhf-001",
+    name: "北京 UHF 中继模板",
+    province: "北京",
+    city: "北京",
+    band: "UHF",
+    downlinkMHz: 439.5,
+    uplinkMHz: 434.5,
+    offsetMHz: -5,
+    tone: "88.5 Hz",
+    mode: "FM",
+    status: "template",
+    notes: "示例数据，请在上线前替换为已授权、可公开展示的本地中继资料。",
+  },
+  {
+    id: "cn-demo-sh-vhf-001",
+    name: "上海 VHF 中继模板",
+    province: "上海",
+    city: "上海",
+    band: "VHF",
+    downlinkMHz: 145.65,
+    uplinkMHz: 145.05,
+    offsetMHz: -0.6,
+    tone: "未配置",
+    mode: "FM",
+    status: "template",
+    notes: "用于展示查询、筛选和后续扩展的数据结构。",
+  },
+  {
+    id: "cn-demo-gd-uhf-001",
+    name: "广东 UHF 中继模板",
+    province: "广东",
+    city: "广州",
+    band: "UHF",
+    downlinkMHz: 439.75,
+    uplinkMHz: 434.75,
+    offsetMHz: -5,
+    tone: "94.8 Hz",
+    mode: "FM",
+    status: "template",
+    notes: "后续可以接入协会公开数据、用户提交审核流或后台管理。",
+  },
+];
+
+const MORSE_LESSONS = [
+  { id: "rhythm", title: "点划节奏", group: ". -", targetWpm: 5, drills: ["E", "T", "I", "M", "A", "N"] },
+  { id: "letters-1", title: "高频字母", group: "A N S O R K", targetWpm: 8, drills: ["SOS", "CQ", "AR", "K"] },
+  { id: "callsign", title: "呼号听抄", group: "字母与数字", targetWpm: 10, drills: ["B1ABC", "BA7XYZ", "CQ CQ DE"] },
+  { id: "q-code", title: "Q 简语", group: "QTH / QSO / QRM", targetWpm: 12, drills: ["QTH", "QSO", "QRM", "QRZ"] },
+];
 
 const MORSE = {
   A: ".-",
@@ -82,15 +140,232 @@ function escapeHTML(value) {
 }
 
 async function api(path, options = {}) {
+  if (state.staticMode) {
+    return staticApi(path, options);
+  }
+
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options,
   });
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    state.staticMode = true;
+    return staticApi(path, options);
+  }
   const payload = await response.json();
   if (!response.ok) {
     throw new Error(payload.error || "请求失败");
   }
   return payload;
+}
+
+function loadLocalDb() {
+  const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+  return saved || { users: {}, attempts: [], repeaters: DEFAULT_REPEATERS };
+}
+
+function saveLocalDb(db) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+}
+
+async function loadStaticBank() {
+  if (state.staticBank) return state.staticBank;
+  const response = await fetch(STATIC_BANK_URL);
+  if (!response.ok) throw new Error("无法加载静态题库 JSON");
+  state.staticBank = await response.json();
+  state.questionById = new Map(state.staticBank.questions.map((question) => [question.id, question]));
+  return state.staticBank;
+}
+
+function normalizeText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function staticPickQuestions(searchParams) {
+  const level = normalizeText(searchParams.get("level")).toUpperCase();
+  const topic = normalizeText(searchParams.get("topic"));
+  const query = normalizeText(searchParams.get("q"));
+  const type = normalizeText(searchParams.get("type"));
+  const limit = Math.min(Number(searchParams.get("limit") || 30), 200);
+  const shuffle = searchParams.get("shuffle") !== "false";
+
+  let questions = state.staticBank.questions.filter((question) => {
+    if (level && question.level !== level) return false;
+    if (topic && question.topicMajor !== topic && question.point !== topic) return false;
+    if (type && question.type !== type) return false;
+    if (query) {
+      const haystack = [
+        question.question,
+        question.officialId,
+        question.itemCode,
+        question.point,
+        question.topic,
+        ...Object.values(question.choices),
+      ].join(" ").toLowerCase();
+      if (!haystack.includes(query)) return false;
+    }
+    return true;
+  });
+
+  if (shuffle) questions = questions.map((question) => ({ question, sort: Math.random() })).sort((a, b) => a.sort - b.sort).map((entry) => entry.question);
+  return questions.slice(0, limit);
+}
+
+function staticCorrect(question, selected) {
+  return [...question.answer].sort().join("") === [...new Set(selected || [])].sort().join("");
+}
+
+function staticBreakdown(question, selected = []) {
+  const answerText = question.answer.map((letter) => `${letter}. ${question.choices[letter]}`).join(" / ");
+  const selectedText = selected.length ? selected.map((letter) => `${letter}. ${question.choices[letter] || "未知选项"}`).join(" / ") : "尚未作答";
+  return {
+    heading: `${question.topic} · ${question.point}`,
+    officialId: question.officialId,
+    answerText,
+    selectedText,
+    weakPointKey: `${question.level}:${question.point}`,
+    steps: [
+      `题型：${question.type === "multiple" ? "多选" : "单选"}，需要选择 ${question.choiceCount} 个答案。`,
+      `先抓题干关键词：${question.question.slice(0, 36)}。`,
+      `正确答案是 ${question.answer.join("")}，对应：${answerText}`,
+      `复习时把它归入「${question.topic}」下的 ${question.point} 知识点。`,
+    ],
+  };
+}
+
+function staticStats(userId) {
+  const db = loadLocalDb();
+  const attempts = db.attempts.filter((attempt) => attempt.userId === userId);
+  const latestByQuestion = new Map(attempts.map((attempt) => [attempt.questionId, attempt]));
+  const topicStats = {};
+  const levelStats = {};
+
+  for (const attempt of attempts) {
+    const question = state.questionById.get(attempt.questionId);
+    if (!question) continue;
+    const key = `${question.level}:${question.point}`;
+    topicStats[key] ||= { key, level: question.level, point: question.point, topic: question.topic, attempts: 0, correct: 0 };
+    topicStats[key].attempts += 1;
+    if (attempt.correct) topicStats[key].correct += 1;
+    levelStats[question.level] ||= { level: question.level, attempts: 0, correct: 0 };
+    levelStats[question.level].attempts += 1;
+    if (attempt.correct) levelStats[question.level].correct += 1;
+  }
+
+  const correctCount = attempts.filter((attempt) => attempt.correct).length;
+  const wrongQuestionIds = [...latestByQuestion.values()].filter((attempt) => !attempt.correct).map((attempt) => attempt.questionId);
+  const weakTopics = Object.values(topicStats)
+    .map((stat) => ({ ...stat, accuracy: stat.attempts ? Math.round((stat.correct / stat.attempts) * 100) : 0 }))
+    .filter((stat) => stat.attempts >= 2)
+    .sort((a, b) => a.accuracy - b.accuracy || b.attempts - a.attempts)
+    .slice(0, 8);
+
+  return {
+    attempts: attempts.length,
+    answered: latestByQuestion.size,
+    correct: correctCount,
+    accuracy: attempts.length ? Math.round((correctCount / attempts.length) * 100) : 0,
+    wrongCount: wrongQuestionIds.length,
+    wrongQuestionIds,
+    levelStats,
+    weakTopics,
+  };
+}
+
+async function staticApi(path, options = {}) {
+  await loadStaticBank();
+  const url = new URL(path, location.origin);
+  const method = options.method || "GET";
+  const body = options.body ? JSON.parse(options.body) : {};
+
+  if (method === "GET" && url.pathname === "/api/banks") {
+    return { source: state.staticBank.source, topicMap: state.staticBank.topicMap, banks: state.staticBank.banks };
+  }
+  if (method === "GET" && url.pathname === "/api/questions") {
+    return { questions: staticPickQuestions(url.searchParams) };
+  }
+  if (method === "GET" && url.pathname.startsWith("/api/questions/")) {
+    const id = decodeURIComponent(url.pathname.replace("/api/questions/", ""));
+    const question = state.questionById.get(id);
+    return { question, breakdown: staticBreakdown(question) };
+  }
+  if (method === "POST" && url.pathname === "/api/progress/attempt") {
+    const db = loadLocalDb();
+    const question = state.questionById.get(body.questionId);
+    const selected = Array.isArray(body.selected) ? body.selected : [];
+    const correct = staticCorrect(question, selected);
+    const userId = body.userId || "guest";
+    db.attempts.push({ id: crypto.randomUUID(), userId, questionId: question.id, selected, correct, mode: body.mode || "practice", createdAt: new Date().toISOString() });
+    saveLocalDb(db);
+    return { correct, answer: question.answer, breakdown: staticBreakdown(question, selected), stats: staticStats(userId) };
+  }
+  if (method === "GET" && url.pathname.match(/^\/api\/users\/[^/]+\/progress$/)) {
+    return staticStats(decodeURIComponent(url.pathname.split("/")[3]));
+  }
+  if (method === "POST" && url.pathname.match(/^\/api\/users\/[^/]+\/progress\/reset$/)) {
+    const userId = decodeURIComponent(url.pathname.split("/")[3]);
+    const db = loadLocalDb();
+    db.attempts = db.attempts.filter((attempt) => attempt.userId !== userId);
+    saveLocalDb(db);
+    return staticStats(userId);
+  }
+  if (method === "GET" && url.pathname.match(/^\/api\/users\/[^/]+\/mistakes$/)) {
+    const userId = decodeURIComponent(url.pathname.split("/")[3]);
+    const stats = staticStats(userId);
+    const level = normalizeText(url.searchParams.get("level")).toUpperCase();
+    const questions = stats.wrongQuestionIds.map((id) => state.questionById.get(id)).filter(Boolean).filter((question) => !level || question.level === level);
+    return { questions, stats };
+  }
+  if (method === "GET" && url.pathname.match(/^\/api\/users\/[^/]+\/review$/)) {
+    const userId = decodeURIComponent(url.pathname.split("/")[3]);
+    const stats = staticStats(userId);
+    const weakPoints = new Set(stats.weakTopics.map((topic) => topic.point));
+    const level = normalizeText(url.searchParams.get("level")).toUpperCase();
+    const questions = state.staticBank.questions.filter((question) => weakPoints.has(question.point)).filter((question) => !level || question.level === level).slice(0, 40);
+    return { questions, stats };
+  }
+  if (method === "POST" && url.pathname === "/api/auth/demo") {
+    const db = loadLocalDb();
+    const user = { id: `demo_${crypto.randomUUID()}`, provider: "static-demo", displayName: body.displayName || "无线电学习者", email: null, createdAt: new Date().toISOString() };
+    db.users[user.id] = user;
+    saveLocalDb(db);
+    return { user };
+  }
+  if (method === "GET" && url.pathname === "/api/auth/apple/config") {
+    return { enabled: false, serviceId: null, bundleId: "com.aoodyconcorde.Radio", redirectUri: null, note: "GitHub Pages 静态版本不执行服务端验签；iOS 端和 Node 服务端模板已保留 Apple 登录接入点。" };
+  }
+  if (method === "GET" && url.pathname === "/api/morse/lessons") {
+    return { lessons: MORSE_LESSONS };
+  }
+  if (method === "GET" && url.pathname === "/api/repeaters") {
+    const db = loadLocalDb();
+    const query = normalizeText(url.searchParams.get("q"));
+    const repeaters = db.repeaters.filter((repeater) => !query || [repeater.name, repeater.province, repeater.city, repeater.band, repeater.mode].join(" ").toLowerCase().includes(query));
+    return { repeaters };
+  }
+  if (method === "POST" && url.pathname === "/api/repeaters") {
+    const db = loadLocalDb();
+    const repeater = {
+      id: `local-${crypto.randomUUID()}`,
+      name: body.name,
+      province: body.province,
+      city: body.city,
+      band: String(body.band || "UHF").toUpperCase(),
+      downlinkMHz: Number(body.downlinkMHz),
+      uplinkMHz: Number(body.uplinkMHz),
+      offsetMHz: Number(body.offsetMHz || 0),
+      tone: body.tone || "未配置",
+      mode: "FM",
+      status: "local",
+      notes: body.notes || "本地新增模板，待审核后可同步到正式数据源。",
+      createdAt: new Date().toISOString(),
+    };
+    db.repeaters.unshift(repeater);
+    saveLocalDb(db);
+    return { repeater };
+  }
+  throw new Error(`Static route not implemented: ${method} ${url.pathname}`);
 }
 
 function setView(view) {
