@@ -19,6 +19,14 @@ node server/server.js
 
 打开 `http://localhost:5173`。
 
+## 在线版本
+
+GitHub Pages:
+
+https://andyxecm.github.io/Radio-Web/
+
+Pages 版本为纯静态模式：题库从仓库内 JSON 读取，刷题进度、错题、中继模板保存到浏览器 `localStorage`。
+
 ## 题库
 
 已内置 `data/processed/question_bank.compact.json`，共 3108 道题。
