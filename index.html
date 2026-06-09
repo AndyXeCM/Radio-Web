@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Radio Study</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <aside class="shell-sidebar" aria-label="主导航">
+      <div class="brand">
+        <div class="brand-mark">R</div>
+        <div>
+          <strong>Radio Study</strong>
+          <span>CRAC 2025</span>
+        </div>
+      </div>
+
+      <nav class="nav-list" id="navList">
+        <button class="nav-item active" data-view="dashboard">总览</button>
+        <button class="nav-item" data-view="practice">刷题</button>
+        <button class="nav-item" data-view="mistakes">错题</button>
+        <button class="nav-item" data-view="review">复习</button>
+        <button class="nav-item" data-view="analysis">薄弱项</button>
+        <button class="nav-item" data-view="morse">摩斯</button>
+        <button class="nav-item" data-view="repeaters">中继</button>
+        <button class="nav-item" data-view="account">账号</button>
+        <button class="nav-item admin-nav" data-view="admin">后台</button>
+      </nav>
+
+      <div class="sidebar-status">
+        <span>当前用户</span>
+        <strong id="sidebarUser">Guest</strong>
+      </div>
+    </aside>
+
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">业余无线电学习台</p>
+          <h1 id="viewTitle">总览</h1>
+        </div>
+        <div class="topbar-actions">
+          <label class="select-label" for="levelSelect">题库</label>
+          <select id="levelSelect">
+            <option value="A">A 类</option>
+            <option value="B">B 类</option>
+            <option value="C">C 类</option>
+          </select>
+        </div>
+      </header>
+
+      <section class="view active" id="dashboardView">
+        <div class="overview-grid">
+          <div class="hero-panel">
+            <p>官方题库</p>
+            <h2>CRAC 2025 新 A/B/C 类题库已接入</h2>
+            <span id="sourceLine">加载中</span>
+          </div>
+          <div class="metric-strip" id="bankMetrics"></div>
+        </div>
+
+        <div class="workspace two-column">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>学习状态</h2>
+              <button class="ghost-button" data-jump="practice">开始刷题</button>
+            </div>
+            <div class="progress-lane" id="dashboardProgress"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>今日建议</h2>
+              <button class="ghost-button" data-jump="analysis">查看分析</button>
+            </div>
+            <div class="recommendation-list" id="recommendations"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="practiceView">
+        <div class="workspace">
+          <section class="panel quiz-panel">
+            <div class="panel-head quiz-toolbar">
+              <div>
+                <h2 id="quizTitle">刷题</h2>
+                <p id="quizSubtitle">随机抽题，提交后显示拆解。</p>
+              </div>
+              <div class="toolbar-row">
+                <select id="topicSelect" aria-label="知识点">
+                  <option value="">全部主题</option>
+                </select>
+                <button id="newSessionButton" class="primary-button">抽题</button>
+              </div>
+            </div>
+            <div id="quizStage" class="quiz-stage"></div>
+            <div class="session-meter" aria-label="刷题进度">
+              <span id="sessionMeterFill"></span>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="mistakesView">
+        <div class="workspace">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>错题本</h2>
+                <p>最近一次仍答错的题目会留在这里。</p>
+              </div>
+              <button id="loadMistakesButton" class="ghost-button">刷新</button>
+            </div>
+            <div id="mistakesList" class="question-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="reviewView">
+        <div class="workspace">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>复习队列</h2>
+                <p>根据薄弱知识点自动聚合，可继续扩展为间隔重复。</p>
+              </div>
+              <button id="loadReviewButton" class="ghost-button">生成</button>
+            </div>
+            <div id="reviewList" class="question-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="analysisView">
+        <div class="workspace two-column">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>正确率</h2>
+              <button id="refreshStatsButton" class="ghost-button">刷新</button>
+            </div>
+            <div id="analysisSummary" class="analysis-summary"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <h2>薄弱项</h2>
+            </div>
+            <div id="weakTopics" class="weak-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="morseView">
+        <div class="workspace two-column">
+          <section class="panel morse-board">
+            <div class="panel-head">
+              <div>
+                <h2>摩斯电码教学</h2>
+                <p>从节奏、字母、呼号到 Q 简语，循序练听。</p>
+              </div>
+            </div>
+            <div class="morse-display" id="morseDisplay">CQ</div>
+            <div class="morse-controls">
+              <label>
+                练习内容
+                <input id="morseInput" value="CQ CQ DE B1ABC" />
+              </label>
+              <label>
+                WPM
+                <input id="wpmInput" type="range" min="5" max="24" value="12" />
+              </label>
+              <button id="playMorseButton" class="primary-button">播放</button>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <h2>课程</h2>
+            </div>
+            <div id="morseLessons" class="lesson-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="repeatersView">
+        <div class="workspace">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>中继查询</h2>
+                <p>当前为模板数据，结构已支持后续扩展和审核流。</p>
+              </div>
+              <input id="repeaterSearch" class="search-input" placeholder="搜索省份、城市、频段" />
+            </div>
+            <div id="repeaterList" class="repeater-list"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>新增中继模板</h2>
+                <p>先保存到本地服务端，之后可以接审核和公开数据源。</p>
+              </div>
+            </div>
+            <form id="repeaterForm" class="repeater-form">
+              <label>名称<input name="name" placeholder="例如：北京 UHF 中继" required /></label>
+              <label>省份<input name="province" placeholder="北京" required /></label>
+              <label>城市<input name="city" placeholder="北京" required /></label>
+              <label>频段<input name="band" placeholder="UHF" required /></label>
+              <label>下行 MHz<input name="downlinkMHz" type="number" step="0.001" placeholder="439.500" required /></label>
+              <label>上行 MHz<input name="uplinkMHz" type="number" step="0.001" placeholder="434.500" required /></label>
+              <label>频差 MHz<input name="offsetMHz" type="number" step="0.001" placeholder="-5" /></label>
+              <label>亚音<input name="tone" placeholder="88.5 Hz" /></label>
+              <label class="form-wide">备注<input name="notes" placeholder="覆盖范围、开放状态、维护者等" /></label>
+              <button class="primary-button form-wide" type="submit">保存模板</button>
+            </form>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="accountView">
+        <div class="workspace two-column">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>登录</h2>
+            </div>
+            <div class="account-stack">
+              <label>
+                昵称
+                <input id="displayNameInput" value="无线电学习者" />
+              </label>
+              <button id="demoLoginButton" class="primary-button">本地登录</button>
+              <button id="appleConfigButton" class="apple-button">Sign in with Apple 状态</button>
+              <button id="adminJumpButton" class="ghost-button">管理员登录</button>
+              <button id="exportProgressButton" class="ghost-button">导出进度</button>
+              <button id="resetProgressButton" class="danger-button">清空当前用户进度</button>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <h2>服务端配置</h2>
+            </div>
+            <pre id="accountStatus" class="status-box">等待检查</pre>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="adminView">
+        <div class="workspace two-column">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>管理员登录</h2>
+                <p>默认本地密码为 radio-admin；生产环境请设置 ADMIN_PASSWORD。</p>
+              </div>
+            </div>
+            <div class="account-stack">
+              <label>
+                管理密码
+                <input id="adminPasswordInput" type="password" placeholder="radio-admin" />
+              </label>
+              <button id="adminLoginButton" class="primary-button">登录后台</button>
+              <button id="adminRefreshButton" class="ghost-button">刷新后台状态</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>数据概况</h2>
+            </div>
+            <div id="adminSummary" class="analysis-summary"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>题库管理</h2>
+                <p>导入完整 question_bank JSON；Pages 版本仅保存到当前浏览器。</p>
+              </div>
+            </div>
+            <div class="account-stack">
+              <input id="questionBankFileInput" type="file" accept="application/json,.json" />
+              <button id="importQuestionBankButton" class="primary-button">导入题库 JSON</button>
+              <button id="exportQuestionBankButton" class="ghost-button">导出当前题库</button>
+              <button id="resetQuestionBankButton" class="danger-button">恢复内置题库</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>数据管理</h2>
+                <p>管理中继与刷题数据。中继演示数据已移除，默认为空。</p>
+              </div>
+            </div>
+            <div class="account-stack">
+              <button id="adminClearRepeatersButton" class="danger-button">清空中继数据</button>
+              <button id="adminClearProgressButton" class="danger-button">清空所有刷题记录</button>
+            </div>
+            <div id="adminRepeaterList" class="repeater-list"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
